@@ -1,6 +1,6 @@
 [package]
 name = "relay-core"
-description = "Transfer rules for AI File Relay: allowed folders, path checks, approvals"
+description = "Transfer rules for AI File Relay: allowed folders, path checks, tokens, approvals, history"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,6 +10,11 @@ repository.workspace = true
 
 [dependencies]
 thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+getrandom.workspace = true
+toml.workspace = true
+directories.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

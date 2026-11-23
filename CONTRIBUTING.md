@@ -12,7 +12,7 @@ Thanks for helping! This guide keeps things simple.
 
 You need:
 
-- Rust 1.85 or newer (`rustup update stable`)
+- Rust 1.88 or newer (`rustup update stable`)
 - Node.js 20 or newer (for the extension)
 
 ```sh
@@ -38,7 +38,7 @@ cd apps/extension && npm run typecheck && npm run build
 - Keep each pull request focused on one change.
 - Add tests for new logic, especially anything about file paths, tokens or approvals.
 - Use [conventional commit](https://www.conventionalcommits.org/) messages, for example `feat(core): add one-time tokens` or `fix(nmh): handle closed pipe`. The changelog is built from them.
-- If you change a message in `crates/relay-protocol`, update `apps/extension/src/protocol.ts` too (until it is generated in M1).
+- If you change a message in `crates/relay-protocol`, run `cargo test` and commit the updated `apps/extension/src/generated/protocol.ts`. CI fails if it is out of date.
 
 ## Code of conduct
 

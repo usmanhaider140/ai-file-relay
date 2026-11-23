@@ -39,10 +39,20 @@ Chrome limits a message from the native host to the extension to 1 MB. So native
 | Crate | Job |
 | --- | --- |
 | `relay-protocol` | Message types shared by every part |
-| `relay-core` | Allowed folders and path checks; later approvals, tokens and history |
-| `relay-mcp` | MCP tools (built with `rmcp` from M1) |
+| `relay-core` | Allowed folders, path checks, one-time file links, approvals, history, settings file |
+| `relay-mcp` | MCP tools (built with `rmcp`), the localhost HTTP server and the `relay-mcp` command |
 | `relay-nmh` | Native messaging framing and the host binary |
 
 ## Message format
 
-Every message is JSON with a `type` field, for example `{"type":"ping"}`. See `crates/relay-protocol/src/lib.rs`.
+Every message is JSON with a `type` field, for example `{"type":"ping"}`. See `crates/relay-protocol/src/lib.rs`. `cargo test` writes the same types as TypeScript to `apps/extension/src/generated/protocol.ts`.
+
+## HTTP endpoints (`relay-mcp serve`)
+
+| Path | Auth | What |
+| --- | --- | --- |
+| `/mcp` | `Authorization: Bearer <token>` | MCP over Streamable HTTP |
+| `/files/<token>` | the one-time token itself | Bytes of one approved file; works once, expires after 60 seconds |
+| `/health` | none | Returns `ok` |
+
+The server listens on 127.0.0.1 only, and requests whose `Host` header is not localhost are refused (protection against DNS rebinding). When an upload fails, its file link is cancelled at once.

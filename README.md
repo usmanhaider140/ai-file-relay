@@ -2,7 +2,7 @@
 
 **Let any AI app put files into web pages and get downloads back, safely, without spinning up a temporary server.**
 
-> **Status: early work (M0).** The project setup is done. Nothing is ready for daily use yet. Watch or star the repo to follow along.
+> **Status: early work (M1).** The MCP server works and you can try it with Claude Desktop, but the Chrome extension link (M2) is not built yet, so uploads and downloads stop at the browser step. Watch or star the repo to follow along.
 
 ## The problem
 
@@ -37,7 +37,7 @@ AI app ──MCP──▶ Desktop hub ◀──native messaging──▶ Chrome 
 | Milestone | What you get |
 | --- | --- |
 | **M0 · Project setup** ✅ | Workspace, CI, licenses, first safety rules |
-| **M1 · Hub + MCP** | MCP tools working in Claude Desktop |
+| **M1 · Hub + MCP** ✅ | MCP tools working in Claude Desktop |
 | **M2 · Extension** | Uploads and downloads working end to end |
 | **M3 · Desktop app** | Tray app, approval popup, installers |
 | **M4 · Release v0.1** | Signed builds, Chrome Web Store, MCP registry |
@@ -47,8 +47,8 @@ AI app ──MCP──▶ Desktop hub ◀──native messaging──▶ Chrome 
 ```
 crates/
   relay-protocol/   shared message types
-  relay-core/       allowed folders, path checks (later: approvals, tokens, history)
-  relay-mcp/        MCP server (M1)
+  relay-core/       allowed folders, path checks, one-time links, approvals, history, config
+  relay-mcp/        MCP server and local hub (the `relay-mcp` command)
   relay-nmh/        native messaging host that Chrome starts
 apps/
   desktop/          Tauri 2 desktop app (M3)
@@ -56,9 +56,61 @@ apps/
 docs/               architecture and protocol notes
 ```
 
+## Try it (M1)
+
+You need Rust 1.88 or newer.
+
+```sh
+# 1. Install the relay-mcp command
+cargo install --git https://github.com/usmanhaider140/ai-file-relay relay-mcp
+
+# 2. Create the settings file and allow a folder
+relay-mcp init
+relay-mcp allow ~/Documents/ai-files
+```
+
+**Claude Desktop:** open Settings → Developer → Edit Config and add:
+
+```json
+{
+  "mcpServers": {
+    "ai-file-relay": {
+      "command": "/full/path/to/relay-mcp"
+    }
+  }
+}
+```
+
+(`which relay-mcp` prints the full path.) Restart Claude Desktop and ask: *"Use AI File Relay to list my files."*
+
+**Claude Code:** `claude mcp add ai-file-relay -- relay-mcp`
+
+**Over HTTP instead of stdio:** run `relay-mcp serve`, then connect your MCP client to `http://127.0.0.1:<port>/mcp` with the header `Authorization: Bearer <token>`. `relay-mcp config --show-token` prints both.
+
+### Tools
+
+| Tool | What it does | Works in M1? |
+| --- | --- | --- |
+| `list_files` | Lists allowed folders and what is inside them | Yes |
+| `relay_status` | Shows setup, connection and recent transfers | Yes |
+| `list_tabs` | Lists open Chrome tabs | Needs the extension (M2) |
+| `upload_to_page` | Puts a file into a page's upload box | Checks path, size and approval; then needs the extension (M2) |
+| `wait_for_download` | Returns a file the page downloaded | Needs the extension (M2) |
+
+### Settings
+
+`relay-mcp config` shows where the settings file is. The main settings:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `allowed_folders` | none | Folders the AI may use (`relay-mcp allow` / `disallow`) |
+| `approval` | `"ask"` | `"ask"` needs the desktop app (M3), so for now transfers are refused. `"allow_all"` allows every transfer inside allowed folders: only for testing. `"deny_all"` turns transfers off. |
+| `max_file_mb` | `100` | Largest file that can be uploaded |
+| `port` | random | Port of the local hub on 127.0.0.1 |
+
 ## Build from source
 
-You need Rust 1.85 or newer, and Node.js 20 or newer for the extension.
+You need Rust 1.88 or newer, and Node.js 20 or newer for the extension.
 
 ```sh
 # Rust workspace

@@ -2,9 +2,12 @@
 //!
 //! These types travel between the Chrome extension, the native messaging
 //! host and the desktop hub. Every message is JSON with a `type` field.
-//! In M1 these types will also be exported to TypeScript for the extension.
+//! `cargo test` also writes these types as TypeScript to
+//! `apps/extension/src/generated/` (with ts-rs), so the extension always
+//! matches. Do not edit the generated files by hand.
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// Name Chrome uses to find our native messaging host.
 pub const NATIVE_HOST_NAME: &str = "io.github.usmanhaider140.ai_file_relay";
@@ -13,8 +16,9 @@ pub const NATIVE_HOST_NAME: &str = "io.github.usmanhaider140.ai_file_relay";
 pub const PROTOCOL_VERSION: u32 = 1;
 
 /// Messages the extension sends to the hub.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[ts(export, export_to = "protocol.ts")]
 pub enum ExtensionToHub {
     /// First message after connecting.
     Hello {
@@ -28,10 +32,12 @@ pub enum ExtensionToHub {
         request_id: String,
         ok: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         error: Option<String>,
     },
     /// Chrome finished a download.
     DownloadFinished {
+        #[ts(type = "number | null")]
         tab_id: Option<i64>,
         url: String,
         path: String,
@@ -39,8 +45,9 @@ pub enum ExtensionToHub {
 }
 
 /// Messages the hub sends to the extension.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[ts(export, export_to = "protocol.ts")]
 pub enum HubToExtension {
     /// Reply to `Hello`.
     Welcome {
@@ -55,12 +62,18 @@ pub enum HubToExtension {
     /// travel through native messaging (Chrome limits those messages to 1 MB).
     UploadToPage {
         request_id: String,
+        #[ts(type = "number")]
         tab_id: i64,
         token: String,
+        /// Full URL of the bytes on the hub, for example
+        /// `http://127.0.0.1:41234/files/<token>`.
+        file_url: String,
         file_name: String,
         mime_type: String,
+        #[ts(type = "number")]
         size: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
         selector: Option<String>,
     },
     /// Something went wrong on the hub side.
@@ -83,6 +96,7 @@ mod tests {
             request_id: "r1".into(),
             tab_id: 7,
             token: "abc".into(),
+            file_url: "http://127.0.0.1:1/files/abc".into(),
             file_name: "report.pdf".into(),
             mime_type: "application/pdf".into(),
             size: 1024,
