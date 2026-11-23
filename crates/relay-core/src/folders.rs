@@ -16,6 +16,8 @@ pub enum PathError {
     Blocked { path: PathBuf, name: String },
     #[error("allowed folder does not exist: {0}")]
     BadRoot(PathBuf),
+    #[error("not a folder: {0}")]
+    NotADirectory(PathBuf),
 }
 
 /// The folders an AI is allowed to read from and write to.
@@ -84,6 +86,58 @@ impl AllowedFolders {
 
         Ok(real)
     }
+
+    /// List one folder (not its subfolders). The folder must pass
+    /// [`check`](Self::check). Blocked folders are left out, and so are
+    /// entries that point outside the allowed folders (for example a
+    /// symlink to somewhere else). Sorted: folders first, then by name.
+    pub fn list(&self, folder: impl AsRef<Path>) -> Result<Vec<Entry>, PathError> {
+        let folder = folder.as_ref();
+        let real = self.check(folder)?;
+        if !real.is_dir() {
+            return Err(PathError::NotADirectory(folder.to_path_buf()));
+        }
+        let read =
+            std::fs::read_dir(&real).map_err(|_| PathError::NotFound(folder.to_path_buf()))?;
+        let mut entries: Vec<Entry> = read
+            .filter_map(Result::ok)
+            .filter_map(|e| {
+                let path = self.check(e.path()).ok()?;
+                let meta = std::fs::metadata(&path).ok()?;
+                Some(Entry {
+                    name: e.file_name().to_string_lossy().into_owned(),
+                    path,
+                    kind: if meta.is_dir() {
+                        EntryKind::Folder
+                    } else {
+                        EntryKind::File
+                    },
+                    size: meta.is_file().then_some(meta.len()),
+                })
+            })
+            .collect();
+        entries.sort_by(|a, b| (a.kind, &a.name).cmp(&(b.kind, &b.name)));
+        Ok(entries)
+    }
+}
+
+/// File or folder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EntryKind {
+    Folder,
+    File,
+}
+
+/// One item from [`AllowedFolders::list`].
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Entry {
+    pub name: String,
+    pub path: PathBuf,
+    pub kind: EntryKind,
+    /// Size in bytes, for files.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
 }
 
 #[cfg(test)]
@@ -173,6 +227,63 @@ mod tests {
         std::os::unix::fs::symlink(dir.path().join("secret.txt"), &link).unwrap();
         let err = folders.check(link).unwrap_err();
         assert!(matches!(err, PathError::OutsideAllowed(_)));
+    }
+
+    #[test]
+    fn list_shows_folders_first_and_hides_blocked() {
+        let (dir, folders) = setup();
+        let allowed = dir.path().join("allowed");
+        fs::create_dir(allowed.join("sub")).unwrap();
+        fs::create_dir(allowed.join(".ssh")).unwrap();
+        fs::write(allowed.join("a.txt"), "12345").unwrap();
+        let names: Vec<(String, EntryKind, Option<u64>)> = folders
+            .list(&allowed)
+            .unwrap()
+            .into_iter()
+            .map(|e| (e.name, e.kind, e.size))
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                ("sub".to_string(), EntryKind::Folder, None),
+                ("a.txt".to_string(), EntryKind::File, Some(5)),
+                ("ok.txt".to_string(), EntryKind::File, Some(2)),
+            ]
+        );
+    }
+
+    #[test]
+    fn list_outside_is_refused() {
+        let (dir, folders) = setup();
+        assert!(matches!(
+            folders.list(dir.path()),
+            Err(PathError::OutsideAllowed(_))
+        ));
+    }
+
+    #[test]
+    fn list_a_file_is_refused() {
+        let (dir, folders) = setup();
+        assert!(matches!(
+            folders.list(dir.path().join("allowed/ok.txt")),
+            Err(PathError::NotADirectory(_))
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn list_hides_symlinks_that_escape() {
+        let (dir, folders) = setup();
+        let allowed = dir.path().join("allowed");
+        std::os::unix::fs::symlink(dir.path().join("secret.txt"), allowed.join("link.txt"))
+            .unwrap();
+        let names: Vec<String> = folders
+            .list(&allowed)
+            .unwrap()
+            .into_iter()
+            .map(|e| e.name)
+            .collect();
+        assert_eq!(names, vec!["ok.txt".to_string()]);
     }
 
     #[test]
