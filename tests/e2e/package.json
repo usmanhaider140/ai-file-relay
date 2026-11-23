@@ -1,0 +1,12 @@
+{
+  "name": "ai-file-relay-e2e",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end test: real Chrome + extension + relay-mcp",
+  "scripts": {
+    "test": "node run.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.56.0"
+  }
+}

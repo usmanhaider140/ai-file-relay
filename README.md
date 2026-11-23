@@ -2,7 +2,7 @@
 
 **Let any AI app put files into web pages and get downloads back, safely, without spinning up a temporary server.**
 
-> **Status: early work (M1).** The MCP server works and you can try it with Claude Desktop, but the Chrome extension link (M2) is not built yet, so uploads and downloads stop at the browser step. Watch or star the repo to follow along.
+> **Status: early work (M2).** Uploads and downloads work end to end in Chrome, tested in CI with real Chrome. The desktop app with the approval popup (M3) is not built yet, so for now you turn approvals on or off in the settings file. Watch or star the repo to follow along.
 
 ## The problem
 
@@ -38,7 +38,7 @@ AI app ──MCP──▶ Desktop hub ◀──native messaging──▶ Chrome 
 | --- | --- |
 | **M0 · Project setup** ✅ | Workspace, CI, licenses, first safety rules |
 | **M1 · Hub + MCP** ✅ | MCP tools working in Claude Desktop |
-| **M2 · Extension** | Uploads and downloads working end to end |
+| **M2 · Extension** ✅ | Uploads and downloads working end to end |
 | **M3 · Desktop app** | Tray app, approval popup, installers |
 | **M4 · Release v0.1** | Signed builds, Chrome Web Store, MCP registry |
 
@@ -48,28 +48,49 @@ AI app ──MCP──▶ Desktop hub ◀──native messaging──▶ Chrome 
 crates/
   relay-protocol/   shared message types
   relay-core/       allowed folders, path checks, one-time links, approvals, history, config
-  relay-mcp/        MCP server and local hub (the `relay-mcp` command)
-  relay-nmh/        native messaging host that Chrome starts
+  relay-mcp/        the `relay-mcp` command: MCP server, local hub, and the
+                    native messaging host that Chrome starts
+  relay-nmh/        Chrome native messaging framing
 apps/
   desktop/          Tauri 2 desktop app (M3)
   extension/        Chrome MV3 extension
+tests/e2e/          end-to-end test with real Chrome
 docs/               architecture and protocol notes
 ```
 
-## Try it (M1)
+## Try it
 
-You need Rust 1.88 or newer.
+You need Rust 1.88 or newer, Node.js 20 or newer, and Chrome (or Chromium, Edge, Brave).
+
+**1. Install `relay-mcp` and allow a folder**
 
 ```sh
-# 1. Install the relay-mcp command
 cargo install --git https://github.com/usmanhaider140/ai-file-relay relay-mcp
-
-# 2. Create the settings file and allow a folder
 relay-mcp init
 relay-mcp allow ~/Documents/ai-files
 ```
 
-**Claude Desktop:** open Settings → Developer → Edit Config and add:
+**2. Install the Chrome extension** (until it is in the Chrome Web Store)
+
+```sh
+git clone https://github.com/usmanhaider140/ai-file-relay
+cd ai-file-relay/apps/extension
+npm install && npm run build
+```
+
+Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and pick the `apps/extension/dist` folder.
+
+**3. Let the extension start `relay-mcp`**
+
+```sh
+relay-mcp install-native-host
+```
+
+Then restart Chrome. The extension's icon has no badge when everything is connected, `…` while it waits for your AI app, and `!` if step 3 is missing.
+
+**4. Connect your AI app**
+
+*Claude Desktop:* open Settings → Developer → Edit Config and add:
 
 ```json
 {
@@ -81,21 +102,31 @@ relay-mcp allow ~/Documents/ai-files
 }
 ```
 
-(`which relay-mcp` prints the full path.) Restart Claude Desktop and ask: *"Use AI File Relay to list my files."*
+(`which relay-mcp` prints the full path.) Restart Claude Desktop and ask: *"Use AI File Relay to upload cv.pdf to the job form in my browser."*
 
-**Claude Code:** `claude mcp add ai-file-relay -- relay-mcp`
+*Claude Code:* `claude mcp add ai-file-relay -- relay-mcp`
 
-**Over HTTP instead of stdio:** run `relay-mcp serve`, then connect your MCP client to `http://127.0.0.1:<port>/mcp` with the header `Authorization: Bearer <token>`. `relay-mcp config --show-token` prints both.
+*Over HTTP instead of stdio:* run `relay-mcp serve`, then connect your MCP client to `http://127.0.0.1:<port>/mcp` with the header `Authorization: Bearer <token>`. `relay-mcp config --show-token` prints both.
+
+**5. Turn on transfers (until the desktop app exists)**
+
+Approvals are set to `"ask"`, but the approval popup comes with the desktop app (M3). Until then, every transfer is refused. To test, set `approval = "allow_all"` in the settings file (`relay-mcp config` shows where it is). Only do this on your own machine, with folders you are happy for the AI to use.
 
 ### Tools
 
-| Tool | What it does | Works in M1? |
-| --- | --- | --- |
-| `list_files` | Lists allowed folders and what is inside them | Yes |
-| `relay_status` | Shows setup, connection and recent transfers | Yes |
-| `list_tabs` | Lists open Chrome tabs | Needs the extension (M2) |
-| `upload_to_page` | Puts a file into a page's upload box | Checks path, size and approval; then needs the extension (M2) |
-| `wait_for_download` | Returns a file the page downloaded | Needs the extension (M2) |
+| Tool | What it does |
+| --- | --- |
+| `list_files` | Lists allowed folders and what is inside them |
+| `list_tabs` | Lists open Chrome tabs |
+| `upload_to_page` | Puts a file into a page's upload box: a normal or hidden file input, or a drag-and-drop area (pass `selector`) |
+| `wait_for_download` | Waits for the page's next download and returns its path in the inbox folder |
+| `relay_status` | Shows setup, connection and recent transfers |
+
+### Good to know
+
+- **One hub at a time.** The first `relay-mcp` that starts (for example from Claude Desktop) becomes the hub and talks to Chrome. A second AI app running its own `relay-mcp` at the same time can list files but cannot reach the browser. The desktop app (M3) will fix this by being the one hub for all apps.
+- **Why the extension asks for access to all sites:** it can only put a file into a page it is allowed to script. It does nothing on a page until the AI asks for an upload there.
+- **Downloads** are copied into the inbox folder and never overwrite an older file.
 
 ### Settings
 
@@ -120,6 +151,10 @@ cargo test --workspace
 cd apps/extension
 npm install
 npm run build      # output in apps/extension/dist
+
+# End-to-end test with real Chrome (Chromium or Chrome for Testing)
+cargo build -p relay-mcp
+cd tests/e2e && npm install && CHROME_PATH=/path/to/chrome npm test
 ```
 
 ## Contributing

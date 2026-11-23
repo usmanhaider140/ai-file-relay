@@ -38,7 +38,8 @@ cd apps/extension && npm run typecheck && npm run build
 - Keep each pull request focused on one change.
 - Add tests for new logic, especially anything about file paths, tokens or approvals.
 - Use [conventional commit](https://www.conventionalcommits.org/) messages, for example `feat(core): add one-time tokens` or `fix(nmh): handle closed pipe`. The changelog is built from them.
-- If you change a message in `crates/relay-protocol`, run `cargo test` and commit the updated `apps/extension/src/generated/protocol.ts`. CI fails if it is out of date.
+- If you change a message in `crates/relay-protocol`, run `cargo test` and commit the updated files in `apps/extension/src/generated/`. CI fails if they are out of date. If the change breaks older extensions, bump `PROTOCOL_VERSION`.
+- Changes to the extension or the browser flow: run the end-to-end test (`tests/e2e`, see the README).
 
 ## Code of conduct
 

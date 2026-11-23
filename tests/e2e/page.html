@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>AI File Relay test page</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; }
+    #drop { border: 2px dashed #888; padding: 2rem; margin: 1rem 0; width: 20rem; }
+    /* Like many real sites: the real input is hidden behind a button. */
+    .hidden-input { display: none; }
+  </style>
+</head>
+<body>
+  <h1>Upload test</h1>
+
+  <label>CV: <button type="button" onclick="document.getElementById('cv').click()">Choose file</button></label>
+  <input id="cv" class="hidden-input" type="file" accept=".txt,.pdf,.bin">
+  <p>Chosen: <span id="cv-result">nothing</span></p>
+
+  <div id="drop">Drop a file here</div>
+  <p>Dropped: <span id="drop-result">nothing</span></p>
+
+  <p><a id="dl" href="/download">Download report.csv</a></p>
+
+  <script>
+    async function describe(file) {
+      if (file.size > 1000) {
+        // Big files: report a checksum instead of the content.
+        const hash = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+        const hex = [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
+        return `${file.name}|${file.size}|sha256:${hex}`;
+      }
+      return `${file.name}|${file.size}|${file.type}|${await file.text()}`;
+    }
+    document.getElementById("cv").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      document.getElementById("cv-result").textContent = file ? await describe(file) : "nothing";
+    });
+    const drop = document.getElementById("drop");
+    drop.addEventListener("dragover", (e) => e.preventDefault());
+    drop.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      const file = e.dataTransfer.files[0];
+      document.getElementById("drop-result").textContent = file ? await describe(file) : "nothing";
+    });
+  </script>
+</body>
+</html>

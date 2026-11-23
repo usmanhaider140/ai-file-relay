@@ -1,6 +1,6 @@
 [package]
 name = "relay-nmh"
-description = "Native messaging host for AI File Relay (started by Chrome)"
+description = "Chrome native messaging framing for AI File Relay"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

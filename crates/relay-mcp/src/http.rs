@@ -4,6 +4,8 @@
 //!   `Authorization: Bearer <token>` from the config file.
 //! - `GET /files/<token>`: the bytes of one approved file. The token works
 //!   once and expires after a minute, so it needs no other auth.
+//! - `GET /bridge`: WebSocket for the native messaging host (the link to
+//!   the Chrome extension). Needs the same bearer token.
 //! - `GET /health`: returns `ok`.
 //!
 //! The server only listens on 127.0.0.1, and rmcp rejects requests whose
@@ -13,17 +15,21 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::body::Body;
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Request, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use futures_util::{SinkExt, StreamExt};
+use relay_protocol::ExtensionToHub;
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
 use tokio_util::io::ReaderStream;
 use tokio_util::sync::CancellationToken;
 
+use crate::extension::ExtensionBridge;
 use crate::relay::{Relay, guess_mime};
 use crate::server::RelayServer;
 
@@ -37,7 +43,9 @@ pub fn router(relay: Arc<Relay>, shutdown: CancellationToken) -> Router {
     );
 
     let token = Arc::new(relay.config.token.clone());
-    let mcp_routes = Router::new()
+    let private_routes = Router::new()
+        .route("/bridge", get(bridge_socket))
+        .with_state((relay.clone(), shutdown.clone()))
         .nest_service("/mcp", mcp)
         .layer(middleware::from_fn_with_state(token, require_bearer));
 
@@ -45,7 +53,64 @@ pub fn router(relay: Arc<Relay>, shutdown: CancellationToken) -> Router {
         .route("/health", get(|| async { "ok" }))
         .route("/files/{token}", get(serve_file))
         .with_state(relay)
-        .merge(mcp_routes)
+        .merge(private_routes)
+}
+
+/// The native host connects here.
+async fn bridge_socket(
+    State((relay, shutdown)): State<(Arc<Relay>, CancellationToken)>,
+    ws: WebSocketUpgrade,
+) -> Response {
+    let Some(bridge) = relay.extension.clone() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "this hub has no extension link",
+        )
+            .into_response();
+    };
+    ws.on_upgrade(move |socket| run_bridge(bridge, socket, shutdown))
+}
+
+/// Pass messages between the WebSocket and the bridge until either side
+/// closes or the hub shuts down.
+async fn run_bridge(bridge: ExtensionBridge, socket: WebSocket, shutdown: CancellationToken) {
+    let (id, mut outgoing) = bridge.attach();
+    let (mut sink, mut stream) = socket.split();
+    loop {
+        tokio::select! {
+            _ = shutdown.cancelled() => {
+                let _ = sink.send(Message::Close(None)).await;
+                break;
+            }
+            out = outgoing.recv() => {
+                let Some(msg) = out else { break };
+                let Ok(text) = serde_json::to_string(&msg) else { continue };
+                if sink.send(Message::Text(text.into())).await.is_err() {
+                    break;
+                }
+            }
+            incoming = stream.next() => {
+                match incoming {
+                    Some(Ok(Message::Text(text))) => {
+                        match serde_json::from_str::<ExtensionToHub>(&text) {
+                            Ok(msg) => {
+                                if let Some(reply) = bridge.handle_incoming(id, msg) {
+                                    let Ok(text) = serde_json::to_string(&reply) else { continue };
+                                    if sink.send(Message::Text(text.into())).await.is_err() {
+                                        break;
+                                    }
+                                }
+                            }
+                            Err(e) => tracing::warn!("bad message from the extension: {e}"),
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                    Some(Ok(_)) => {}
+                }
+            }
+        }
+    }
+    bridge.detach(id);
 }
 
 /// Reject requests without the right bearer token.
@@ -188,6 +253,13 @@ mod tests {
         // own rules about method and headers), so it is no longer a 401.
         let (status, _) = get(app, "/mcp", Some("secret-token")).await;
         assert_ne!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn bridge_needs_the_bearer_token() {
+        let (_dir, relay, _file) = relay_with_file();
+        let (status, _) = get(router(relay, CancellationToken::new()), "/bridge", None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]

@@ -7,7 +7,12 @@
 //! relay-mcp allow <folder>  let the AI use a folder
 //! relay-mcp disallow <dir>  remove a folder
 //! relay-mcp config          show where the config is and what it says
+//! relay-mcp install-native-host    let the Chrome extension start relay-mcp
+//! relay-mcp uninstall-native-host  undo that
 //! ```
+//!
+//! When Chrome starts `relay-mcp` (with a `chrome-extension://…` argument),
+//! it runs as the native messaging host instead.
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -16,7 +21,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use relay_core::Config;
-use relay_mcp::{Relay, RelayServer, http};
+use relay_mcp::{ExtensionBridge, Relay, RelayServer, http, install, native_host};
 use rmcp::ServiceExt;
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
@@ -54,9 +59,30 @@ enum Command {
         #[arg(long)]
         show_token: bool,
     },
+    /// Register relay-mcp with Chrome (and Chromium, Edge, Brave) so the
+    /// extension can start it.
+    InstallNativeHost {
+        /// Also allow this extension ID (for example the Chrome Web Store ID).
+        #[arg(long = "extension-id")]
+        extension_ids: Vec<String>,
+        /// Write the manifest into this folder only (for testing with a
+        /// custom browser profile).
+        #[arg(long)]
+        dir: Option<PathBuf>,
+    },
+    /// Remove the Chrome registration.
+    UninstallNativeHost,
+    /// Run as the native messaging host (Chrome normally does this).
+    #[command(hide = true)]
+    NativeHost,
 }
 
 fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    if native_host::started_by_chrome(&args) {
+        return native_host::run(config_path(None)?).map_err(anyhow::Error::msg);
+    }
+
     let cli = Cli::parse();
     let command = cli.command.unwrap_or(Command::Stdio);
 
@@ -73,11 +99,18 @@ fn main() -> Result<()> {
         )
         .init();
 
-    let path = match cli.config {
-        Some(p) => p,
-        None => Config::default_path()?,
-    };
+    let path = config_path(cli.config)?;
+    run(command, path)
+}
 
+fn config_path(given: Option<PathBuf>) -> Result<PathBuf> {
+    match given.or_else(|| std::env::var_os("AI_FILE_RELAY_CONFIG").map(PathBuf::from)) {
+        Some(p) => Ok(p),
+        None => Ok(Config::default_path()?),
+    }
+}
+
+fn run(command: Command, path: PathBuf) -> Result<()> {
     match command {
         Command::Init => {
             let (_, created) = Config::load_or_create(&path)?;
@@ -114,6 +147,35 @@ fn main() -> Result<()> {
             println!("# {}\n{}", path.display(), config.to_toml()?);
             Ok(())
         }
+        Command::InstallNativeHost { extension_ids, dir } => {
+            let exe = std::env::current_exe().context("could not find relay-mcp's own path")?;
+            let ids = install::extension_ids(&extension_ids);
+            match dir {
+                Some(dir) => {
+                    let file = install::write_manifest(&dir, &exe, &ids)?;
+                    println!("Wrote {}", file.display());
+                }
+                None => {
+                    for done in install::install(&exe, &ids).map_err(anyhow::Error::msg)? {
+                        println!("{}: {}", done.browser, done.location);
+                    }
+                }
+            }
+            println!("Chrome will start: {}", exe.display());
+            println!("Now load the extension (see the README) and restart Chrome.");
+            Ok(())
+        }
+        Command::UninstallNativeHost => {
+            let removed = install::uninstall().map_err(anyhow::Error::msg)?;
+            if removed.is_empty() {
+                println!("Nothing to remove.");
+            }
+            for r in removed {
+                println!("Removed {r}");
+            }
+            Ok(())
+        }
+        Command::NativeHost => native_host::run(path).map_err(anyhow::Error::msg),
         Command::Stdio => runtime()?.block_on(run_stdio(path)),
         Command::Serve => runtime()?.block_on(run_serve(path)),
     }
@@ -136,6 +198,7 @@ async fn run_stdio(path: PathBuf) -> Result<()> {
     let (config, _) = Config::load_or_create(&path)?;
     let port = config.port;
     let mut relay = Relay::from_config(config);
+    let bridge = ExtensionBridge::new();
 
     // Also start the file server, so uploads can work without the hub.
     // If the port is taken (for example the hub is already running), the
@@ -143,7 +206,9 @@ async fn run_stdio(path: PathBuf) -> Result<()> {
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
     let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(l) => {
-            relay = relay.with_file_server(format!("http://{addr}"));
+            relay = relay
+                .with_file_server(format!("http://{addr}"))
+                .with_extension(bridge);
             Some(l)
         }
         Err(e) => {
@@ -180,7 +245,9 @@ async fn run_serve(path: PathBuf) -> Result<()> {
         tracing::info!("created config at {}", path.display());
     }
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, config.port));
-    let relay = Relay::from_config(config).with_file_server(format!("http://{addr}"));
+    let relay = Relay::from_config(config)
+        .with_file_server(format!("http://{addr}"))
+        .with_extension(ExtensionBridge::new());
     warn_missing(&relay);
     if relay.folders.roots().is_empty() {
         tracing::warn!("no folders are allowed yet; run `relay-mcp allow <folder>`");

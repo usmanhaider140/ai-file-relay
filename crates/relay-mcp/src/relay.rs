@@ -9,6 +9,7 @@ use relay_core::{
 };
 
 use crate::browser::{BrowserBridge, NotConnected, UploadJob};
+use crate::extension::ExtensionBridge;
 
 /// How long a one-time file link works.
 pub const FILE_LINK_TTL: Duration = Duration::from_secs(60);
@@ -23,6 +24,9 @@ pub struct Relay {
     pub approver: Box<dyn Approver>,
     pub history: History,
     pub browser: Box<dyn BrowserBridge>,
+    /// The extension link, when this process is the hub. The HTTP server
+    /// connects the native host's WebSocket to it.
+    pub extension: Option<ExtensionBridge>,
     /// Base URL of the file server, for example `http://127.0.0.1:41234`.
     /// `None` when no file server is running.
     pub file_server: Option<String>,
@@ -48,8 +52,16 @@ impl Relay {
             approver,
             history,
             browser: Box::new(NotConnected),
+            extension: None,
             file_server: None,
         }
+    }
+
+    /// Use the real extension link as the browser.
+    pub fn with_extension(mut self, bridge: ExtensionBridge) -> Self {
+        self.browser = Box::new(bridge.clone());
+        self.extension = Some(bridge);
+        self
     }
 
     /// Use another browser bridge.
@@ -70,10 +82,17 @@ impl Relay {
         self
     }
 
-    fn log(&self, action: Action, path: &Path, outcome: Outcome) {
-        if let Err(e) = self.history.record(Event::now(action, path, None, outcome)) {
+    fn log(&self, action: Action, path: &Path, site: Option<String>, outcome: Outcome) {
+        if let Err(e) = self.history.record(Event::now(action, path, site, outcome)) {
             tracing::warn!("could not write the transfer log: {e}");
         }
+    }
+
+    /// The site (host name) of a tab, if the browser can tell us.
+    async fn tab_site(&self, tab_id: i64) -> Option<String> {
+        let tabs = self.browser.list_tabs().await.ok()?;
+        let tab = tabs.into_iter().find(|t| t.id == tab_id)?;
+        site_of(&tab.url)
     }
 
     /// Run the whole upload flow: check the path, check the size, ask for
@@ -99,19 +118,20 @@ impl Relay {
             ));
         }
 
+        let site = self.tab_site(tab_id).await;
         let request = ApprovalRequest {
             action: Action::Upload,
             path: real.clone(),
-            site: None,
+            site: site.clone(),
         };
         if let Decision::Deny(why) = self.approver.decide(&request) {
-            self.log(Action::Upload, &real, Outcome::Denied(why.clone()));
+            self.log(Action::Upload, &real, site, Outcome::Denied(why.clone()));
             return Err(format!("upload not approved: {why}"));
         }
 
         let Some(base) = &self.file_server else {
             let why = "the file server is not running (start the hub with `relay-mcp serve`)";
-            self.log(Action::Upload, &real, Outcome::Failed(why.into()));
+            self.log(Action::Upload, &real, site, Outcome::Failed(why.into()));
             return Err(why.into());
         };
 
@@ -133,7 +153,7 @@ impl Relay {
 
         match self.browser.upload(job).await {
             Ok(()) => {
-                self.log(Action::Upload, &real, Outcome::Done);
+                self.log(Action::Upload, &real, site, Outcome::Done);
                 Ok(UploadDone {
                     file_name,
                     size: meta.len(),
@@ -143,7 +163,7 @@ impl Relay {
             Err(e) => {
                 // The link was never used; make sure it cannot be used later.
                 self.tokens.revoke(&token);
-                self.log(Action::Upload, &real, Outcome::Failed(e.to_string()));
+                self.log(Action::Upload, &real, site, Outcome::Failed(e.to_string()));
                 Err(format!("upload failed: {e}"))
             }
         }
@@ -162,13 +182,17 @@ impl Relay {
             .clone()
             .ok_or("no inbox_folder is set in the config")?;
 
+        let site = match tab_id {
+            Some(id) => self.tab_site(id).await,
+            None => None,
+        };
         let request = ApprovalRequest {
             action: Action::Download,
             path: inbox.clone(),
-            site: None,
+            site: site.clone(),
         };
         if let Decision::Deny(why) = self.approver.decide(&request) {
-            self.log(Action::Download, &inbox, Outcome::Denied(why.clone()));
+            self.log(Action::Download, &inbox, site, Outcome::Denied(why.clone()));
             return Err(format!("download not approved: {why}"));
         }
 
@@ -177,16 +201,27 @@ impl Relay {
             .wait_for_download(tab_id, timeout)
             .await
             .map_err(|e| {
-                self.log(Action::Download, &inbox, Outcome::Failed(e.to_string()));
+                self.log(
+                    Action::Download,
+                    &inbox,
+                    site.clone(),
+                    Outcome::Failed(e.to_string()),
+                );
                 format!("no download: {e}")
             })?;
+        let site = site.or_else(|| site_of(&done.url));
 
         let target = copy_into(&done.path, &inbox).map_err(|e| {
             let why = format!("could not copy the download into the inbox: {e}");
-            self.log(Action::Download, &done.path, Outcome::Failed(why.clone()));
+            self.log(
+                Action::Download,
+                &done.path,
+                site.clone(),
+                Outcome::Failed(why.clone()),
+            );
             why
         })?;
-        self.log(Action::Download, &target, Outcome::Done);
+        self.log(Action::Download, &target, site, Outcome::Done);
         Ok(target)
     }
 }
@@ -221,6 +256,20 @@ fn copy_into(file: &Path, folder: &Path) -> std::io::Result<PathBuf> {
     }
     std::fs::copy(file, &target)?;
     Ok(target)
+}
+
+/// Host name of a URL, for example `example.com` for
+/// `https://example.com/upload`. `None` for URLs without a host.
+pub fn site_of(url: &str) -> Option<String> {
+    let rest = url.split_once("://")?.1;
+    let host_port = rest.split(['/', '?', '#']).next()?;
+    let host = host_port.rsplit_once('@').map_or(host_port, |(_, h)| h);
+    let host = if host.starts_with('[') {
+        host.split_once(']').map(|(h, _)| &h[1..])?
+    } else {
+        host.split(':').next()?
+    };
+    (!host.is_empty()).then(|| host.to_ascii_lowercase())
 }
 
 /// Best guess of a file's type from its extension.
@@ -427,6 +476,22 @@ mod tests {
         assert_eq!(first, dir.path().join("inbox/invoice.pdf"));
         assert_eq!(second, dir.path().join("inbox/invoice (1).pdf"));
         assert_eq!(std::fs::read_to_string(second).unwrap(), "pdf");
+    }
+
+    #[test]
+    fn site_of_urls() {
+        assert_eq!(
+            site_of("https://Example.com/upload?x=1").as_deref(),
+            Some("example.com")
+        );
+        assert_eq!(
+            site_of("http://user:pw@host.dev:8080/a").as_deref(),
+            Some("host.dev")
+        );
+        assert_eq!(site_of("http://[::1]:3000/").as_deref(), Some("::1"));
+        assert_eq!(site_of("file:///tmp/a.html"), None);
+        assert_eq!(site_of("chrome://newtab/"), Some("newtab".into()));
+        assert_eq!(site_of("not a url"), None);
     }
 
     #[test]
