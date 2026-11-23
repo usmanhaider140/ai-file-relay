@@ -12,7 +12,7 @@ Thanks for helping! This guide keeps things simple.
 
 You need:
 
-- Rust 1.88 or newer (`rustup update stable`)
+- Rust 1.90 or newer (`rustup update stable`)
 - Node.js 20 or newer (for the extension)
 
 ```sh

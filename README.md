@@ -65,7 +65,7 @@ docs/               architecture and protocol notes
 
 ## Try it
 
-Until v0.1 ships ready-made installers, build from source. You need Rust 1.88 or newer, Node.js 20 or newer, and Chrome (or Chromium, Edge, Brave). On Linux, also install the [Tauri system libraries](https://v2.tauri.app/start/prerequisites/#linux).
+Until v0.1 ships ready-made installers, build from source. You need Rust 1.90 or newer, Node.js 20 or newer, and Chrome (or Chromium, Edge, Brave). On Linux, also install the [Tauri system libraries](https://v2.tauri.app/start/prerequisites/#linux).
 
 **1. Build and install the desktop app**
 
@@ -132,7 +132,7 @@ Over HTTP instead of stdio: run `relay-mcp serve`, then connect your MCP client 
 
 ## Build from source
 
-You need Rust 1.88 or newer, and Node.js 20 or newer for the extension.
+You need Rust 1.90 or newer, and Node.js 20 or newer for the extension.
 
 ```sh
 # Rust workspace
