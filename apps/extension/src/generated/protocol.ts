@@ -3,14 +3,31 @@
 /**
  * Messages the extension sends to the hub.
  */
-export type ExtensionToHub = { "type": "hello", extension_version: string, protocol_version: number, } | { "type": "ping" } | { "type": "upload_result", request_id: string, ok: boolean, error?: string, } | { "type": "download_finished", tab_id: number | null, url: string, path: string, };
+export type ExtensionToHub = { "type": "hello", extension_version: string, protocol_version: number, } | { "type": "ping" } | { "type": "tabs", request_id: string, tabs: Array<TabInfo>, } | { "type": "upload_result", request_id: string, ok: boolean, error?: string, } | { "type": "download_finished", request_id: string, url: string, 
+/**
+ * Where Chrome saved the file.
+ */
+path: string, } | { "type": "download_failed", request_id: string, error: string, };
 
 /**
- * Messages the hub sends to the extension.
+ * Messages the hub (or the host) sends to the extension.
  */
-export type HubToExtension = { "type": "welcome", hub_version: string, protocol_version: number, } | { "type": "pong" } | { "type": "upload_to_page", request_id: string, tab_id: number, token: string, 
+export type HubToExtension = { "type": "welcome", hub_version: string, protocol_version: number, } | { "type": "pong" } | { "type": "hub_status", connected: boolean, detail?: string, } | { "type": "list_tabs", request_id: string, } | { "type": "upload_to_page", request_id: string, tab_id: number, token: string, 
 /**
  * Full URL of the bytes on the hub, for example
  * `http://127.0.0.1:41234/files/<token>`.
  */
-file_url: string, file_name: string, mime_type: string, size: number, selector?: string, } | { "type": "error", message: string, };
+file_url: string, file_name: string, mime_type: string, size: number, 
+/**
+ * CSS selector of the file input or drop zone, if the AI knows it.
+ */
+selector?: string, } | { "type": "watch_download", request_id: string, 
+/**
+ * Only count downloads started from this tab's site.
+ */
+tab_id?: number, timeout_ms: number, } | { "type": "error", message: string, };
+
+/**
+ * An open browser tab.
+ */
+export type TabInfo = { id: number, title: string, url: string, };
