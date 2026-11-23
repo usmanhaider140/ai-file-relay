@@ -101,10 +101,21 @@ const siteUrl = `http://127.0.0.1:${site.address().port}/`;
 
 // ---------- the desktop app ----------
 
-const app = spawn(appBin, [], { env, stdio: ["ignore", "inherit", "inherit"] });
+// The app's own log, printed if something goes wrong.
+const appLog = [];
+const app = spawn(appBin, [], {
+  env: { ...env, RUST_LOG: "info" },
+  stdio: ["ignore", "pipe", "pipe"],
+});
+for (const stream of [app.stdout, app.stderr]) {
+  stream.on("data", (d) => appLog.push(d.toString()));
+}
+let appExit = null;
+app.on("exit", (code, signal) => (appExit = `exited with ${code ?? signal}`));
 let hubUp = false;
 const port = Number(readFileSync(configPath, "utf8").match(/^port = (\d+)/m)[1]);
-for (let i = 0; i < 40 && !hubUp; i++) {
+// The first start can be slow on CI machines (WebKit warms up).
+for (let i = 0; i < 240 && !hubUp && appExit === null; i++) {
   await sleep(250);
   hubUp = await fetch(`http://127.0.0.1:${port}/health`)
     .then((r) => r.json())
@@ -189,7 +200,11 @@ async function pageText(locator, startsWith, timeoutMs = 10_000) {
 
 let exitCode = 1;
 try {
-  check("desktop app runs the hub", hubUp);
+  check("desktop app runs the hub", hubUp, appExit ?? "");
+  if (!hubUp) {
+    console.log("---- desktop app log ----\n" + appLog.join("").slice(-4000));
+    throw new Error("the desktop app did not start its hub");
+  }
   screenshot("1-app");
 
   const tab = browser.pages()[0] ?? (await browser.newPage());
@@ -243,6 +258,7 @@ try {
   exitCode = results.every((x) => x.ok) ? 0 : 1;
 } catch (e) {
   console.error(e);
+  if (results.some((r) => !r.ok)) console.log("---- desktop app log ----\n" + appLog.join("").slice(-4000));
 } finally {
   await browser.close().catch(() => {});
   mcp.kill();

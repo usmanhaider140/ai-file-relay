@@ -103,7 +103,7 @@ jobs:
       - name: Linux libraries for Tauri, virtual screen, xdotool
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev xvfb xdotool imagemagick
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev xvfb xdotool imagemagick dbus-x11
       - name: Build relay-mcp
         run: cargo build -p relay-mcp
       - name: Build the extension
@@ -130,7 +130,8 @@ jobs:
         env:
           CHROME_PATH: ${{ steps.chrome.outputs.path }}
           SHOTS: ${{ runner.temp }}/shots
-        run: xvfb-run -a --server-args="-screen 0 1280x800x24" node desktop.mjs
+        # A session bus, like a real desktop has (tray icon, single instance).
+        run: dbus-run-session -- xvfb-run -a --server-args="-screen 0 1280x800x24" node desktop.mjs
       - name: Screenshots
         if: always()
         uses: actions/upload-artifact@v4
