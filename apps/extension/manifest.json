@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "AI File Relay",
+  "version": "0.0.1",
+  "description": "Lets AI apps put files into web pages and get downloads back, with your approval.",
+  "minimum_chrome_version": "116",
+  "permissions": ["nativeMessaging"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  }
+}
