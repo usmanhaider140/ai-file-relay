@@ -77,10 +77,10 @@ enum Command {
     NativeHost,
 }
 
-fn main() -> Result<std::process::ExitCode> {
+fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     if native_host::started_by_chrome(&args) {
-        return Ok(native_host::run(config_path(None)?));
+        return native_host::run(config_path(None)?).map_err(anyhow::Error::msg);
     }
 
     let cli = Cli::parse();
@@ -100,7 +100,7 @@ fn main() -> Result<std::process::ExitCode> {
         .init();
 
     let path = config_path(cli.config)?;
-    run(command, path).map(|()| std::process::ExitCode::SUCCESS)
+    run(command, path)
 }
 
 fn config_path(given: Option<PathBuf>) -> Result<PathBuf> {
@@ -175,10 +175,7 @@ fn run(command: Command, path: PathBuf) -> Result<()> {
             }
             Ok(())
         }
-        Command::NativeHost => {
-            native_host::run(path);
-            Ok(())
-        }
+        Command::NativeHost => native_host::run(path).map_err(anyhow::Error::msg),
         Command::Stdio => runtime()?.block_on(run_stdio(path)),
         Command::Serve => runtime()?.block_on(run_serve(path)),
     }

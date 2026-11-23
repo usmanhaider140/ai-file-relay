@@ -7,7 +7,6 @@
 //! extension with a `hub_status` message, and answers `ping` itself.
 
 use std::path::PathBuf;
-use std::process::ExitCode;
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
@@ -29,17 +28,14 @@ pub fn started_by_chrome(args: &[String]) -> bool {
 }
 
 /// Run the host until Chrome closes stdin.
-pub fn run(config_path: PathBuf) -> ExitCode {
+pub fn run(config_path: PathBuf) -> Result<(), String> {
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
         .build()
     {
         Ok(rt) => rt,
-        Err(e) => {
-            eprintln!("relay-mcp host: cannot start runtime: {e}");
-            return ExitCode::FAILURE;
-        }
+        Err(e) => return Err(format!("relay-mcp host: cannot start runtime: {e}")),
     };
 
     // stdin: one blocking thread reads framed messages from Chrome.
@@ -77,7 +73,7 @@ pub fn run(config_path: PathBuf) -> ExitCode {
     runtime.block_on(pump(config_path, from_ext, to_ext));
     drop(runtime);
     let _ = writer.join();
-    ExitCode::SUCCESS
+    Ok(())
 }
 
 fn status(connected: bool, detail: Option<String>) -> Value {

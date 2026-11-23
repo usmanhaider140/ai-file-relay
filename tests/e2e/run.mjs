@@ -133,6 +133,19 @@ const browser = await chromium.launchPersistentContext(profile, {
   ],
 });
 
+// The page handles a new file in an async event handler, so wait for the
+// result text to change instead of reading it at once.
+async function pageText(locator, startsWith, timeoutMs = 10_000) {
+  const until = Date.now() + timeoutMs;
+  let text = "";
+  while (Date.now() < until) {
+    text = (await locator.textContent()) ?? "";
+    if (text.startsWith(startsWith)) return text;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return text;
+}
+
 let exitCode = 1;
 try {
   const tab = browser.pages()[0] ?? (await browser.newPage());
@@ -154,7 +167,7 @@ try {
   // Upload into a hidden file input.
   const up = await tool("upload_to_page", { path: join(docs, "cv.txt"), tab_id: testTab.id });
   check("upload_to_page succeeds", !up.error, up.text.slice(0, 200));
-  const chosen = await tab.locator("#cv-result").textContent();
+  const chosen = await pageText(tab.locator("#cv-result"), "cv.txt");
   check(
     "the page received the file",
     chosen === "cv.txt|28|text/plain|Usman's CV: Rust, TypeScript",
@@ -168,13 +181,13 @@ try {
     selector: "#drop",
   });
   check("upload to a drop zone succeeds", !drop.error, drop.text.slice(0, 200));
-  const dropped = await tab.locator("#drop-result").textContent();
+  const dropped = await pageText(tab.locator("#drop-result"), "cv.txt");
   check("the drop zone received the file", dropped.startsWith("cv.txt|28|"), dropped);
 
   // A bigger file arrives in pieces and is put back together exactly.
   const bigUp = await tool("upload_to_page", { path: join(docs, "big.bin"), tab_id: testTab.id });
   check("2.5 MB upload succeeds", !bigUp.error, bigUp.text.slice(0, 200));
-  const bigResult = await tab.locator("#cv-result").textContent();
+  const bigResult = await pageText(tab.locator("#cv-result"), "big.bin");
   check("2.5 MB file arrives byte for byte", bigResult === `big.bin|${big.length}|sha256:${bigHash}`, bigResult);
 
   // A file outside the allowed folder is refused before anything happens.
