@@ -25,6 +25,6 @@ The project is in early development. Only the latest commit on `main` gets secur
 - The hub listens on `127.0.0.1` only and every request needs a token.
 - An AI can only reach folders the user allowed; `..` and symlinks cannot escape them.
 - Sensitive folders such as `~/.ssh` are always blocked.
-- The user approves each upload.
+- The user approves each transfer in the desktop app's popup (no answer within 60 seconds means no). "Allow this site for 1 hour" only covers the same kind of transfer with the same site.
 - File links work once and expire quickly.
 - The native messaging host only accepts our own extension's ID.

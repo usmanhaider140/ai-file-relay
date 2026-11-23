@@ -13,7 +13,8 @@ relay-core.workspace = true
 relay-protocol.workspace = true
 relay-nmh.workspace = true
 directories.workspace = true
-rmcp = { version = "3.11", features = ["server", "macros", "transport-io", "transport-streamable-http-server"] }
+rmcp = { version = "3.11", features = ["server", "client", "macros", "transport-io", "transport-streamable-http-server", "transport-streamable-http-client-reqwest"] }
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net", "fs", "io-std", "io-util", "process", "time"] }
 axum = { version = "0.8", features = ["ws"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }

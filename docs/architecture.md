@@ -15,6 +15,14 @@ AI apps (Claude, Cursor, VS Code)
                                       (localhost HTTP + one-time token)
 ```
 
+## One hub
+
+Only one process owns the hub port (from the settings file) at a time: normally the desktop app. A `relay-mcp` started by an AI app first calls `GET /health`; if an AI File Relay hub answers, it becomes a thin proxy and forwards every MCP request to the hub's `/mcp` endpoint. So every AI app shares one browser link, one approval popup and one history. If no hub is running, that `relay-mcp` becomes the hub itself.
+
+## Approvals
+
+The hub asks an `Approver` before each transfer. The desktop app uses `ApprovalQueue`: in `ask` mode each request waits (up to 60 seconds) until the user answers the popup. `relay-mcp` on its own uses `PolicyApprover`, which decides from the settings (`allow_all`, `deny_all`, or refuse for `ask`).
+
 ## How Chrome reaches the hub
 
 Chrome starts `relay-mcp` with a `chrome-extension://…` argument; that makes it run as the native messaging host. The host reads the port and token from the settings file and connects to the hub's `/bridge` WebSocket, then passes messages both ways unchanged. If the hub is not running, the host keeps trying every 2 seconds and sends the extension a `hub_status` message, so the toolbar badge can show it.
@@ -60,6 +68,6 @@ Every message is JSON with a `type` field, for example `{"type":"ping"}`. See `c
 | `/mcp` | `Authorization: Bearer <token>` | MCP over Streamable HTTP |
 | `/bridge` | `Authorization: Bearer <token>` | WebSocket for the native host (link to the extension) |
 | `/files/<token>` | the one-time token itself | Bytes of one approved file; works once, expires after 60 seconds |
-| `/health` | none | Returns `ok` |
+| `/health` | none | JSON naming the app, version and who runs the hub (`desktop`, `serve`, `stdio`) |
 
 The server listens on 127.0.0.1 only, and requests whose `Host` header is not localhost are refused (protection against DNS rebinding). When an upload fails, its file link is cancelled at once.

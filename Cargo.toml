@@ -1,6 +1,9 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+members = ["crates/*", "apps/desktop/src-tauri"]
+# The desktop app needs system WebView libraries to build, so plain `cargo`
+# commands skip it. Build it with `cargo build -p ai-file-relay-desktop`.
+default-members = ["crates/*"]
 
 [workspace.package]
 version = "0.0.1"
