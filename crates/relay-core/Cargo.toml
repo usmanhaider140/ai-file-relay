@@ -1,5 +1,5 @@
 [package]
-name = "relay-core"
+name = "ai-file-relay-core"
 description = "Transfer rules for AI File Relay: allowed folders, path checks, tokens, approvals, history"
 version.workspace = true
 edition.workspace = true
@@ -7,6 +7,13 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+homepage.workspace = true
+readme = "README.md"
+
+[lib]
+name = "relay_core"
 
 [dependencies]
 thiserror.workspace = true

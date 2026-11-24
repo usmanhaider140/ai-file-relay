@@ -17,7 +17,7 @@ const target = process.env.TAURI_ENV_TARGET_TRIPLE ??
   execFileSync("rustc", ["-vV"], { encoding: "utf8" }).match(/^host: (.+)$/m)[1];
 const ext = target.includes("windows") ? ".exe" : "";
 
-const args = ["build", "-p", "relay-mcp", "--target", target];
+const args = ["build", "-p", "ai-file-relay", "--target", target];
 if (profile === "release") args.push("--release");
 execFileSync("cargo", args, { cwd: root, stdio: "inherit" });
 

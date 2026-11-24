@@ -1,0 +1,31 @@
+name: Publish crates
+
+# Publishes the Rust crates to crates.io when a GitHub release is published
+# (not for drafts or pre-releases), or by hand from the Actions tab.
+# Needs a crates.io API token in the CARGO_REGISTRY_TOKEN secret.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Publish (in dependency order)
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "::error::Add a crates.io token as the CARGO_REGISTRY_TOKEN secret first."
+            exit 1
+          fi
+          # The desktop app has publish = false, so it is skipped.
+          cargo publish --workspace --locked

@@ -6,7 +6,7 @@
 // It answers the popup with real key presses (xdotool), so it tests what a
 // person sees and clicks.
 //
-//   cargo build -p relay-mcp
+//   cargo build -p ai-file-relay
 //   cargo build -p ai-file-relay-desktop --features tauri/custom-protocol
 //   (cd apps/extension && npm ci && npm run build)
 //   xvfb-run -a node tests/e2e/desktop.mjs      # needs xdotool

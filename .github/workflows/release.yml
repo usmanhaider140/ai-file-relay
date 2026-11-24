@@ -1,12 +1,17 @@
 name: Release
 
-# Push a tag like v0.3.0 to build installers for macOS, Windows and Linux.
+# Push a tag like v0.2.0 to build installers for macOS, Windows and Linux.
 # They land in a draft GitHub release, so you can check them before
 # publishing. Builds are not code-signed yet (see the README).
+#
+# To try the build without making a release, push a branch named
+# release-test/<anything>: the installers are then kept as downloadable
+# files on the workflow run instead.
 
 on:
   push:
     tags: ["v*"]
+    branches: ["release-test/**"]
   workflow_dispatch:
 
 permissions:
@@ -14,6 +19,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # Only a version tag makes a GitHub release.
+  IS_RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') }}
 
 jobs:
   desktop:
@@ -56,13 +63,29 @@ jobs:
       - name: Install front-end packages
         working-directory: apps/desktop
         run: npm ci
+      # Update files are signed with the key in the TAURI_SIGNING_PRIVATE_KEY
+      # secret. Without it, the installers are still built, just without
+      # auto-update files.
+      - name: Signing for auto-update
+        id: signing
+        shell: bash
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then
+            echo "extra=" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set, so this release has no auto-update files."
+            echo 'extra=--config {"bundle":{"createUpdaterArtifacts":false}}' >> "$GITHUB_OUTPUT"
+          fi
       # tauri build runs `npm run sidecar && npm run build` first (see
       # tauri.conf.json), which builds relay-mcp for the same target.
       - uses: tauri-apps/tauri-action@v0
         with:
           projectPath: apps/desktop
-          args: --target ${{ matrix.target }}
-          tagName: ${{ github.ref_name }}
+          args: --target ${{ matrix.target }} ${{ steps.signing.outputs.extra }}
+          includeUpdaterJson: true
+          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
           releaseName: AI File Relay ${{ github.ref_name }}
           releaseBody: |
             See the README for setup. Builds are not code-signed yet:
@@ -72,6 +95,21 @@ jobs:
           prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      - name: Keep the installers on the run (test builds)
+        if: env.IS_RELEASE != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.target }}
+          path: |
+            target/${{ matrix.target }}/release/bundle/**/*.dmg
+            target/${{ matrix.target }}/release/bundle/**/*.app.tar.gz*
+            target/${{ matrix.target }}/release/bundle/**/*.msi*
+            target/${{ matrix.target }}/release/bundle/**/*.exe*
+            target/${{ matrix.target }}/release/bundle/**/*.deb
+            target/${{ matrix.target }}/release/bundle/**/*.AppImage*
+          if-no-files-found: error
 
   extension:
     name: Chrome extension zip
@@ -85,8 +123,15 @@ jobs:
         working-directory: apps/extension
         run: npm ci && npm run build
       - name: Zip
-        run: cd apps/extension/dist && zip -r "$GITHUB_WORKSPACE/ai-file-relay-extension-${{ github.ref_name }}.zip" .
+        run: cd apps/extension/dist && zip -r "$GITHUB_WORKSPACE/ai-file-relay-extension-${GITHUB_REF_NAME//\//-}.zip" .
+      - name: Keep the zip on the run (test builds)
+        if: env.IS_RELEASE != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension
+          path: ai-file-relay-extension-*.zip
       - name: Attach to the draft release
+        if: env.IS_RELEASE == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}

@@ -2,7 +2,11 @@
 
 **Let any AI app put files into web pages and get downloads back, safely, without spinning up a temporary server.**
 
-> **Status: early work (M3).** The desktop app, the Chrome extension and the MCP server work together end to end, tested in CI with real Chrome and real clicks on the approval popup. There are no signed installers or Chrome Web Store listing yet (that is M4), so for now you build from source. Watch or star the repo to follow along.
+> **Status: v0.1, first release.** The desktop app, the Chrome extension and the MCP server work together end to end, tested in CI with real Chrome and real clicks on the approval popup. Installers are on the [Releases page](https://github.com/usmanhaider140/ai-file-relay/releases); they are not code-signed yet, so your system may warn you the first time you open the app.
+
+<p align="center">
+  <img src="docs/images/demo.gif" width="760" alt="Demo: an AI app asks to upload a CV to a job form, AI File Relay shows an approval popup, the user clicks Allow once and the file appears in the form">
+</p>
 
 <p align="center">
   <img src="docs/images/app.png" width="520" alt="The AI File Relay desktop app: hub, Chrome extension and approvals status, with setup steps">
@@ -45,7 +49,8 @@ AI app ──MCP──▶ Desktop hub ◀──native messaging──▶ Chrome 
 | **M1 · Hub + MCP** ✅ | MCP tools working in Claude Desktop |
 | **M2 · Extension** ✅ | Uploads and downloads working end to end |
 | **M3 · Desktop app** ✅ | Tray app, approval popup, one hub for all AI apps, installer builds |
-| **M4 · Release v0.1** | Signed builds, Chrome Web Store, MCP registry |
+| **M4 · Release v0.1** | Installers, auto-update, crates.io, Chrome Web Store, MCP directories |
+| **Next** | Code signing, Firefox, more upload widgets: [ideas welcome](https://github.com/usmanhaider140/ai-file-relay/issues) |
 
 ## Project layout
 
@@ -65,24 +70,23 @@ docs/               architecture and protocol notes
 
 ## Try it
 
-Until v0.1 ships ready-made installers, build from source. You need Rust 1.90 or newer, Node.js 20 or newer, and Chrome (or Chromium, Edge, Brave). On Linux, also install the [Tauri system libraries](https://v2.tauri.app/start/prerequisites/#linux).
+You need Chrome (or Chromium, Edge, Brave) and an MCP-capable AI app such as Claude Desktop, Claude Code or Cursor.
 
-**1. Build and install the desktop app**
+**1. Install the desktop app**
 
-```sh
-git clone https://github.com/usmanhaider140/ai-file-relay
-cd ai-file-relay/apps/desktop
-npm install
-npm run tauri build
-```
+Download the installer for your system from the [latest release](https://github.com/usmanhaider140/ai-file-relay/releases): `.dmg` for macOS, `.msi` or `.exe` for Windows, `.deb` or `.AppImage` for Linux.
 
-The installer is in `target/release/bundle/` (a `.dmg` on macOS, `.msi`/`.exe` on Windows, `.deb`/`.AppImage` on Linux). Install it and open **AI File Relay**. It lives in the menu bar / system tray; closing the window keeps it running.
+The builds are not code-signed yet. On macOS, right-click the app and choose **Open** the first time. On Windows, choose **More info → Run anyway**.
+
+Open **AI File Relay**. It lives in the menu bar / system tray; closing the window keeps it running, and it updates itself when a new version is out.
+
+Or build it yourself: you need Rust 1.90 or newer and Node.js 20 or newer (plus the [Tauri system libraries](https://v2.tauri.app/start/prerequisites/#linux) on Linux), then `cd apps/desktop && npm install && npm run tauri build`. The installer lands in `target/release/bundle/`.
 
 **2. Follow the setup steps in the app**
 
 - **Choose a folder** the AI may use.
 - **Set up Chrome**, so the extension can reach the app.
-- **Install the extension:** in the repo run `cd apps/extension && npm install && npm run build`, open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and pick `apps/extension/dist`.
+- **Install the extension:** until it is in the Chrome Web Store, download `ai-file-relay-extension-*.zip` from the same release and unzip it. Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and pick the unzipped folder.
 - **Connect an AI app:** one click for Claude Desktop and Cursor, or copy the command for Claude Code. Restart the AI app.
 
 Now ask your AI app, for example: *"Use AI File Relay to upload cv.pdf to the job form in my browser."* The app shows a popup; you choose **Allow once**, **Allow this site for 1 hour**, or **Deny**. If nobody answers within 60 seconds, the answer is no.
@@ -92,7 +96,7 @@ Now ask your AI app, for example: *"Use AI File Relay to upload cv.pdf to the jo
 `relay-mcp` also works on its own (no popup, no tray):
 
 ```sh
-cargo install --git https://github.com/usmanhaider140/ai-file-relay relay-mcp
+cargo install ai-file-relay     # the `relay-mcp` command
 relay-mcp init
 relay-mcp allow ~/Documents/ai-files
 relay-mcp install-native-host
@@ -150,7 +154,7 @@ npm run tauri dev        # run it
 npm run tauri build      # installers in target/release/bundle/
 
 # End-to-end tests with real Chrome (Chromium or Chrome for Testing)
-cargo build -p relay-mcp
+cargo build -p ai-file-relay
 cd tests/e2e && npm install && CHROME_PATH=/path/to/chrome npm test
 # ...and with the desktop app (Linux, needs xvfb and xdotool), see tests/e2e/desktop.mjs
 ```
@@ -159,7 +163,10 @@ Plain `cargo build` and `cargo test` skip the desktop app; use `-p ai-file-relay
 
 ### Releases
 
-Pushing a tag like `v0.3.0` runs `.github/workflows/release.yml`: it builds installers for macOS (Apple silicon and Intel), Windows and Linux, plus the extension zip, into a draft GitHub release. Builds are not code-signed yet.
+1. `node scripts/set-version.mjs 0.2.0` sets the version everywhere; update `CHANGELOG.md`; commit.
+2. Push a tag like `v0.2.0`. `.github/workflows/release.yml` builds installers for macOS (Apple silicon and Intel), Windows and Linux, the auto-update files (signed with the `TAURI_SIGNING_PRIVATE_KEY` secret) and the extension zip, into a draft GitHub release.
+   To try the build first without making a release, push a branch named `release-test/<anything>`; the installers are kept as downloadable files on that workflow run.
+3. Check the draft and publish it. Publishing runs `.github/workflows/publish-crates.yml`, which publishes the Rust crates to crates.io (needs the `CARGO_REGISTRY_TOKEN` secret). Installed apps see the new version within a few hours.
 
 ## Contributing
 

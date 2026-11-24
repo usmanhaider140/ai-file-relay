@@ -1,5 +1,5 @@
 [package]
-name = "relay-nmh"
+name = "ai-file-relay-nmh"
 description = "Chrome native messaging framing for AI File Relay"
 version.workspace = true
 edition.workspace = true
@@ -7,6 +7,13 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+homepage.workspace = true
+readme = "README.md"
+
+[lib]
+name = "relay_nmh"
 
 [dependencies]
 relay-protocol.workspace = true
