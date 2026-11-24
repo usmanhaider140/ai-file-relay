@@ -1,12 +1,14 @@
 [package]
 name = "ai-file-relay-desktop"
 description = "AI File Relay desktop app: the hub with the approval popup"
-version = "0.3.0"
+version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+# Shipped as installers, not on crates.io.
+publish = false
 
 [lib]
 name = "ai_file_relay_desktop"
@@ -16,11 +18,17 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 relay-core.workspace = true
-relay-mcp = { path = "../../../crates/relay-mcp" }
+relay-mcp.workspace = true
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-autostart = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+# The updater builds reqwest with "rustls-no-provider", which (through
+# feature unification) also applies to the hub's local HTTP client, so the
+# app installs a TLS provider itself at start.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time", "sync"] }
 tokio-util = "0.7"
 axum = "0.8"

@@ -56,12 +56,28 @@ jobs:
       - name: Install front-end packages
         working-directory: apps/desktop
         run: npm ci
+      # Update files are signed with the key in the TAURI_SIGNING_PRIVATE_KEY
+      # secret. Without it, the installers are still built, just without
+      # auto-update files.
+      - name: Signing for auto-update
+        id: signing
+        shell: bash
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then
+            echo "extra=" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set, so this release has no auto-update files."
+            echo 'extra=--config {"bundle":{"createUpdaterArtifacts":false}}' >> "$GITHUB_OUTPUT"
+          fi
       # tauri build runs `npm run sidecar && npm run build` first (see
       # tauri.conf.json), which builds relay-mcp for the same target.
       - uses: tauri-apps/tauri-action@v0
         with:
           projectPath: apps/desktop
-          args: --target ${{ matrix.target }}
+          args: --target ${{ matrix.target }} ${{ steps.signing.outputs.extra }}
+          includeUpdaterJson: true
           tagName: ${{ github.ref_name }}
           releaseName: AI File Relay ${{ github.ref_name }}
           releaseBody: |
@@ -72,6 +88,8 @@ jobs:
           prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
   extension:
     name: Chrome extension zip

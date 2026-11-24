@@ -1,5 +1,5 @@
 [package]
-name = "relay-mcp"
+name = "ai-file-relay"
 description = "MCP server for AI File Relay"
 version.workspace = true
 edition.workspace = true
@@ -7,6 +7,17 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+homepage.workspace = true
+readme = "README.md"
+
+[lib]
+name = "relay_mcp"
+
+[[bin]]
+name = "relay-mcp"
+path = "src/main.rs"
 
 [dependencies]
 relay-core.workspace = true

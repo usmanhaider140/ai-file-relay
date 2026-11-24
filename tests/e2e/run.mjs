@@ -3,7 +3,7 @@
 // It plays the AI app: it starts `relay-mcp` over stdio (like Claude Desktop
 // does) and calls the MCP tools, while Chrome shows a test page.
 //
-//   cargo build -p relay-mcp
+//   cargo build -p ai-file-relay
 //   (cd apps/extension && npm ci && npm run build)
 //   (cd tests/e2e && npm ci && CHROME_PATH=/path/to/chrome npm test)
 //

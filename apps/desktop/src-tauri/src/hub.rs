@@ -38,9 +38,19 @@ pub struct Hub {
     pub shutdown: CancellationToken,
 }
 
+/// Make sure TLS has a crypto provider before any HTTP client is built.
+/// (See the note on `rustls` in Cargo.toml.)
+pub fn ensure_crypto_provider() {
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        // Fails only if another thread installed one first, which is fine.
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
+}
+
 impl Hub {
     /// Load the settings and build the hub (not started yet).
     pub fn new(config_path: PathBuf) -> anyhow::Result<Arc<Self>> {
+        ensure_crypto_provider();
         let (config, _) = Config::load_or_create(&config_path)?;
         let queue = Arc::new(ApprovalQueue::new(config.approval, DEFAULT_TIMEOUT));
         let bridge = ExtensionBridge::new();
@@ -165,6 +175,14 @@ mod tests {
         let saved = Config::load(&path).unwrap();
         assert_eq!(saved.approval, ApprovalMode::DenyAll);
         assert_eq!(saved.allowed_folders.len(), 1);
+    }
+
+    #[test]
+    fn crypto_provider_is_installed() {
+        ensure_crypto_provider();
+        assert!(rustls::crypto::CryptoProvider::get_default().is_some());
+        // The local client must build without panicking.
+        let _ = relay_mcp::proxy::local_client();
     }
 
     #[tokio::test]

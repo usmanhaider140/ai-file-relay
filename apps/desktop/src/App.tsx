@@ -11,6 +11,7 @@ import {
   type HistoryEvent,
   type Snapshot,
 } from "./api";
+import { UpdateBanner } from "./Updates";
 
 type Page = "overview" | "folders" | "activity" | "settings";
 
@@ -75,6 +76,7 @@ export function App() {
       </nav>
 
       <main className="content">
+        <UpdateBanner />
         {notice && (
           <div className={`notice ${notice.error ? "error" : ""}`}>
             <span>{notice.text}</span>
