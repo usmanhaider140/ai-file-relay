@@ -114,6 +114,8 @@ pub struct TransferItem {
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct StatusResult {
     pub version: String,
+    /// Who runs the hub: "desktop", "serve" or "stdio".
+    pub hub: String,
     pub allowed_folders: Vec<String>,
     /// Folders in the config that no longer exist.
     pub missing_folders: Vec<String>,
@@ -164,15 +166,15 @@ impl RelayServer {
         Parameters(p): Parameters<ListFilesParams>,
     ) -> Result<Json<ListFilesResult>, String> {
         let Some(folder) = p.folder.filter(|f| !f.trim().is_empty()) else {
-            if self.relay.folders.roots().is_empty() {
-                return Err("no folders are allowed yet. The user can add one with \
-                            `relay-mcp allow <folder>`."
-                    .into());
+            let roots = self.relay.allowed_roots();
+            if roots.is_empty() {
+                return Err(
+                    "no folders are allowed yet. The user can add one in the AI File \
+                            Relay app, or with `relay-mcp allow <folder>`."
+                        .into(),
+                );
             }
-            let items = self
-                .relay
-                .folders
-                .roots()
+            let items = roots
                 .iter()
                 .map(|root| FileItem {
                     name: root
@@ -190,11 +192,7 @@ impl RelayServer {
             }));
         };
 
-        let entries = self
-            .relay
-            .folders
-            .list(&folder)
-            .map_err(|e| e.to_string())?;
+        let entries = self.relay.list_folder(&folder).map_err(|e| e.to_string())?;
         let items = entries
             .into_iter()
             .map(|e| FileItem {
@@ -280,7 +278,7 @@ impl RelayServer {
             }
             BridgeStatus::NotConnected { reason } => (false, reason),
         };
-        let approval = serde_json::to_value(relay.config.approval)
+        let approval = serde_json::to_value(relay.approver.mode())
             .ok()
             .and_then(|v| v.as_str().map(str::to_owned))
             .unwrap_or_default();
@@ -305,8 +303,9 @@ impl RelayServer {
             .collect();
         Json(StatusResult {
             version: env!("CARGO_PKG_VERSION").into(),
-            allowed_folders: relay.folders.roots().iter().map(|p| show(p)).collect(),
-            missing_folders: relay.missing_folders.iter().map(|p| show(p)).collect(),
+            hub: relay.hub_role.clone(),
+            allowed_folders: relay.allowed_roots().iter().map(|p| show(p)).collect(),
+            missing_folders: relay.missing_folders().iter().map(|p| show(p)).collect(),
             approval,
             browser_connected,
             browser_detail,

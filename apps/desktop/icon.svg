@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="#1d6f5c"/>
+  <!-- a page -->
+  <path d="M300 250h260l120 120v400a30 30 0 0 1-30 30H300a30 30 0 0 1-30-30V280a30 30 0 0 1 30-30z" fill="#f4f1ea"/>
+  <path d="M560 250v100a20 20 0 0 0 20 20h100z" fill="#cfc8b8"/>
+  <!-- relay arrows -->
+  <path d="M400 560h260" stroke="#1d6f5c" stroke-width="44" stroke-linecap="round"/>
+  <path d="M600 500l70 60-70 60" fill="none" stroke="#1d6f5c" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M620 680H360" stroke="#d98a2b" stroke-width="44" stroke-linecap="round"/>
+  <path d="M420 620l-70 60 70 60" fill="none" stroke="#d98a2b" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -170,6 +170,45 @@ fn windows_keys() -> Vec<(&'static str, String)> {
     .collect()
 }
 
+/// Is the host registered for Chrome? Returns the path Chrome would start,
+/// if it is.
+pub fn installed_path() -> Option<PathBuf> {
+    #[cfg(not(windows))]
+    {
+        let home = directories::BaseDirs::new()?.home_dir().to_path_buf();
+        let (_, chrome, _) = browser_folders(&home).into_iter().next()?;
+        read_manifest_path(
+            &chrome
+                .join("NativeMessagingHosts")
+                .join(format!("{NATIVE_HOST_NAME}.json")),
+        )
+    }
+    #[cfg(windows)]
+    {
+        let data = directories::ProjectDirs::from("io.github", "usmanhaider140", "ai-file-relay")?;
+        let file = data.data_dir().join(format!("{NATIVE_HOST_NAME}.json"));
+        let key = windows_keys().into_iter().next()?.1;
+        let registered = std::process::Command::new("reg")
+            .args(["query", &key, "/ve"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+        if registered {
+            read_manifest_path(&file)
+        } else {
+            None
+        }
+    }
+}
+
+/// The `path` inside a manifest file.
+fn read_manifest_path(file: &Path) -> Option<PathBuf> {
+    let text = std::fs::read_to_string(file).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    v.get("path")?.as_str().map(PathBuf::from)
+}
+
 /// Remove the host registration. Returns what was removed.
 pub fn uninstall() -> Result<Vec<String>, String> {
     let mut removed = Vec::new();
@@ -223,6 +262,17 @@ mod tests {
             format!("chrome-extension://{DEV_EXTENSION_ID}/")
         );
         assert_eq!(m["allowed_origins"][1], "chrome-extension://abc/");
+    }
+
+    #[test]
+    fn reads_path_back_from_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        let file =
+            write_manifest(dir.path(), Path::new("/opt/relay-mcp"), &extension_ids(&[])).unwrap();
+        assert_eq!(
+            read_manifest_path(&file),
+            Some(PathBuf::from("/opt/relay-mcp"))
+        );
     }
 
     #[test]

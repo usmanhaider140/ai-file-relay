@@ -12,7 +12,9 @@ pub mod folders;
 pub mod history;
 pub mod tokens;
 
-pub use approvals::{Action, ApprovalMode, ApprovalRequest, Approver, Decision, PolicyApprover};
+pub use approvals::{
+    Action, ApprovalMode, ApprovalRequest, Approver, Decision, DecisionFuture, PolicyApprover,
+};
 pub use config::{Config, ConfigError};
 pub use folders::{AllowedFolders, Entry, EntryKind, PathError};
 pub use history::{Event, History, Outcome};

@@ -6,7 +6,8 @@
 //!   once and expires after a minute, so it needs no other auth.
 //! - `GET /bridge`: WebSocket for the native messaging host (the link to
 //!   the Chrome extension). Needs the same bearer token.
-//! - `GET /health`: returns `ok`.
+//! - `GET /health`: says this is an AI File Relay hub (JSON), so a
+//!   `relay-mcp` started by an AI app can find it and forward to it.
 //!
 //! The server only listens on 127.0.0.1, and rmcp rejects requests whose
 //! `Host` header is not localhost (protection against DNS rebinding).
@@ -30,6 +31,7 @@ use tokio_util::io::ReaderStream;
 use tokio_util::sync::CancellationToken;
 
 use crate::extension::ExtensionBridge;
+use crate::proxy::HubIdentity;
 use crate::relay::{Relay, guess_mime};
 use crate::server::RelayServer;
 
@@ -50,10 +52,14 @@ pub fn router(relay: Arc<Relay>, shutdown: CancellationToken) -> Router {
         .layer(middleware::from_fn_with_state(token, require_bearer));
 
     Router::new()
-        .route("/health", get(|| async { "ok" }))
+        .route("/health", get(health))
         .route("/files/{token}", get(serve_file))
         .with_state(relay)
         .merge(private_routes)
+}
+
+async fn health(State(relay): State<Arc<Relay>>) -> axum::Json<HubIdentity> {
+    axum::Json(HubIdentity::new(&relay.hub_role))
 }
 
 /// The native host connects here.
@@ -266,7 +272,10 @@ mod tests {
     async fn health_is_open() {
         let (_dir, relay, _file) = relay_with_file();
         let (status, body) = get(router(relay, CancellationToken::new()), "/health", None).await;
-        assert_eq!((status, body.as_str()), (StatusCode::OK, "ok"));
+        assert_eq!(status, StatusCode::OK);
+        let id: HubIdentity = serde_json::from_str(&body).unwrap();
+        assert_eq!(id.app, "ai-file-relay");
+        assert_eq!(id.role, "serve");
     }
 
     #[test]

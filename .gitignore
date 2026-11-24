@@ -5,3 +5,6 @@ apps/extension/dist/
 *.log
 .env
 .env.*
+apps/desktop/dist/
+apps/desktop/src-tauri/binaries/
+apps/desktop/src-tauri/gen/

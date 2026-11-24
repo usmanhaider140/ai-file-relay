@@ -27,10 +27,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Format
         run: cargo fmt --all --check
+      # Plain cargo commands skip the desktop app (see default-members in
+      # Cargo.toml); the desktop job below covers it.
       - name: Lint
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
       - name: Test
-        run: cargo test --workspace
+        run: cargo test
       - name: Generated TypeScript types are up to date
         if: runner.os == 'Linux'
         run: git diff --exit-code apps/extension/src/generated
@@ -52,8 +54,44 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
 
+  desktop:
+    name: Desktop app (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - name: Linux libraries for Tauri
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
+      - name: Front end
+        working-directory: apps/desktop
+        run: npm ci && npm run build
+      - name: Bundled relay-mcp (sidecar)
+        working-directory: apps/desktop
+        env:
+          SIDECAR_PROFILE: debug
+        run: npm run sidecar
+      - name: Lint
+        run: cargo clippy -p ai-file-relay-desktop --all-targets -- -D warnings
+      - name: Test
+        run: cargo test -p ai-file-relay-desktop
+
   e2e:
-    name: End to end (real Chrome)
+    name: End to end (real Chrome + desktop app)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -62,11 +100,19 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
+      - name: Linux libraries for Tauri, virtual screen, xdotool
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev xvfb xdotool imagemagick dbus-x11
       - name: Build relay-mcp
         run: cargo build -p relay-mcp
       - name: Build the extension
         working-directory: apps/extension
         run: npm ci && npm run build
+      - name: Build the desktop app
+        run: |
+          (cd apps/desktop && npm ci && npm run build && SIDECAR_PROFILE=debug npm run sidecar)
+          cargo build -p ai-file-relay-desktop --features tauri/custom-protocol
       # Branded Google Chrome ignores --load-extension, so use Chrome for Testing.
       - name: Install Chrome for Testing
         id: chrome
@@ -74,8 +120,22 @@ jobs:
           out=$(npx -y @puppeteer/browsers install chrome@stable --path "$RUNNER_TEMP/browsers")
           echo "$out"
           echo "path=$(echo "$out" | tail -1 | cut -d' ' -f2-)" >> "$GITHUB_OUTPUT"
-      - name: Run
+      - name: Browser test (relay-mcp as the hub)
         working-directory: tests/e2e
         env:
           CHROME_PATH: ${{ steps.chrome.outputs.path }}
         run: npm ci && npm test
+      - name: Desktop test (desktop app as the hub, real popup clicks)
+        working-directory: tests/e2e
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.path }}
+          SHOTS: ${{ runner.temp }}/shots
+        # A session bus, like a real desktop has (tray icon, single instance).
+        run: dbus-run-session -- xvfb-run -a --server-args="-screen 0 1280x800x24" node desktop.mjs
+      - name: Screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-screenshots
+          path: ${{ runner.temp }}/shots
+          if-no-files-found: ignore

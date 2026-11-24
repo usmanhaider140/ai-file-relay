@@ -1,11 +1,12 @@
 //! Shared state for the MCP server and the HTTP server.
 
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 use std::time::Duration;
 
 use relay_core::{
-    Action, AllowedFolders, ApprovalRequest, Approver, Config, Decision, Event, History, Outcome,
-    PolicyApprover, TokenStore,
+    Action, AllowedFolders, ApprovalRequest, Approver, Config, Decision, Entry, Event, History,
+    Outcome, PathError, PolicyApprover, TokenStore,
 };
 
 use crate::browser::{BrowserBridge, NotConnected, UploadJob};
@@ -17,9 +18,9 @@ pub const FILE_LINK_TTL: Duration = Duration::from_secs(60);
 /// Everything the tools and the HTTP server share.
 pub struct Relay {
     pub config: Config,
-    pub folders: AllowedFolders,
-    /// Folders in the config that no longer exist.
-    pub missing_folders: Vec<PathBuf>,
+    /// Allowed folders, and folders in the config that no longer exist.
+    /// Behind a lock so the desktop app can change them while running.
+    folders: RwLock<(AllowedFolders, Vec<PathBuf>)>,
     pub tokens: TokenStore,
     pub approver: Box<dyn Approver>,
     pub history: History,
@@ -30,6 +31,8 @@ pub struct Relay {
     /// Base URL of the file server, for example `http://127.0.0.1:41234`.
     /// `None` when no file server is running.
     pub file_server: Option<String>,
+    /// Who runs this hub: "desktop", "serve" or "stdio" (shown by `/health`).
+    pub hub_role: String,
 }
 
 impl Relay {
@@ -46,15 +49,59 @@ impl Relay {
         });
         Self {
             config,
-            folders,
-            missing_folders,
+            folders: RwLock::new((folders, missing_folders)),
             tokens: TokenStore::new(),
             approver,
             history,
             browser: Box::new(NotConnected),
             extension: None,
             file_server: None,
+            hub_role: "serve".into(),
         }
+    }
+
+    /// Say who runs this hub (shown by `/health`).
+    pub fn with_hub_role(mut self, role: impl Into<String>) -> Self {
+        self.hub_role = role.into();
+        self
+    }
+
+    /// The allowed folders (resolved paths).
+    pub fn allowed_roots(&self) -> Vec<PathBuf> {
+        self.read_folders().0.roots().to_vec()
+    }
+
+    /// Folders in the settings that no longer exist.
+    pub fn missing_folders(&self) -> Vec<PathBuf> {
+        self.read_folders().1.clone()
+    }
+
+    /// Check a path against the allowed folders.
+    pub fn check_path(&self, path: impl AsRef<Path>) -> Result<PathBuf, PathError> {
+        self.read_folders().0.check(path)
+    }
+
+    /// List one allowed folder.
+    pub fn list_folder(&self, folder: impl AsRef<Path>) -> Result<Vec<Entry>, PathError> {
+        self.read_folders().0.list(folder)
+    }
+
+    /// Replace the allowed folders (for example after the user changed them
+    /// in the desktop app). Returns the ones that do not exist.
+    pub fn set_allowed_folders(&self, folders: &[PathBuf]) -> Vec<PathBuf> {
+        let mut allowed = AllowedFolders::new();
+        let mut missing = Vec::new();
+        for f in folders {
+            if allowed.add(f).is_err() {
+                missing.push(f.clone());
+            }
+        }
+        *self.folders.write().unwrap_or_else(|e| e.into_inner()) = (allowed, missing.clone());
+        missing
+    }
+
+    fn read_folders(&self) -> std::sync::RwLockReadGuard<'_, (AllowedFolders, Vec<PathBuf>)> {
+        self.folders.read().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Use the real extension link as the browser.
@@ -104,7 +151,7 @@ impl Relay {
         tab_id: i64,
         selector: Option<String>,
     ) -> Result<UploadDone, String> {
-        let real = self.folders.check(path).map_err(|e| e.to_string())?;
+        let real = self.check_path(path).map_err(|e| e.to_string())?;
         let meta = std::fs::metadata(&real).map_err(|e| format!("cannot read {path}: {e}"))?;
         if !meta.is_file() {
             return Err(format!("not a file: {path}"));
@@ -123,8 +170,9 @@ impl Relay {
             action: Action::Upload,
             path: real.clone(),
             site: site.clone(),
+            size: Some(meta.len()),
         };
-        if let Decision::Deny(why) = self.approver.decide(&request) {
+        if let Decision::Deny(why) = self.approver.decide(&request).await {
             self.log(Action::Upload, &real, site, Outcome::Denied(why.clone()));
             return Err(format!("upload not approved: {why}"));
         }
@@ -190,8 +238,9 @@ impl Relay {
             action: Action::Download,
             path: inbox.clone(),
             site: site.clone(),
+            size: None,
         };
-        if let Decision::Deny(why) = self.approver.decide(&request) {
+        if let Decision::Deny(why) = self.approver.decide(&request).await {
             self.log(Action::Download, &inbox, site, Outcome::Denied(why.clone()));
             return Err(format!("download not approved: {why}"));
         }
@@ -476,6 +525,19 @@ mod tests {
         assert_eq!(first, dir.path().join("inbox/invoice.pdf"));
         assert_eq!(second, dir.path().join("inbox/invoice (1).pdf"));
         assert_eq!(std::fs::read_to_string(second).unwrap(), "pdf");
+    }
+
+    #[test]
+    fn folders_can_change_while_running() {
+        let (dir, config) = setup(ApprovalMode::AllowAll);
+        let relay = Relay::from_config(config);
+        let file = dir.path().join("allowed/report.pdf");
+        assert!(relay.check_path(&file).is_ok());
+        let missing = relay.set_allowed_folders(&[dir.path().join("nope")]);
+        assert_eq!(missing, vec![dir.path().join("nope")]);
+        assert!(relay.check_path(&file).is_err());
+        assert!(relay.allowed_roots().is_empty());
+        assert_eq!(relay.missing_folders().len(), 1);
     }
 
     #[test]

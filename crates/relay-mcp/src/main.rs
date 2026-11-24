@@ -21,6 +21,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use relay_core::Config;
+use relay_mcp::proxy::{HubProxy, probe_hub};
 use relay_mcp::{ExtensionBridge, Relay, RelayServer, http, install, native_host};
 use rmcp::ServiceExt;
 use tokio_util::sync::CancellationToken;
@@ -189,7 +190,7 @@ fn runtime() -> Result<tokio::runtime::Runtime> {
 }
 
 fn warn_missing(relay: &Relay) {
-    for f in &relay.missing_folders {
+    for f in &relay.missing_folders() {
         tracing::warn!("allowed folder no longer exists, skipping: {}", f.display());
     }
 }
@@ -197,7 +198,28 @@ fn warn_missing(relay: &Relay) {
 async fn run_stdio(path: PathBuf) -> Result<()> {
     let (config, _) = Config::load_or_create(&path)?;
     let port = config.port;
-    let mut relay = Relay::from_config(config);
+
+    // A hub is already running (the desktop app, `relay-mcp serve`, or
+    // another AI app's relay-mcp): forward everything to it, so all AI apps
+    // share one browser link, one approval popup and one history.
+    if let Some(hub) = probe_hub(port).await {
+        tracing::info!(
+            "forwarding to the {} hub {} on port {port}",
+            hub.role,
+            hub.version
+        );
+        let proxy = HubProxy::connect(&config)
+            .await
+            .context("found the hub but could not connect to its MCP endpoint")?;
+        let service = proxy
+            .serve(rmcp::transport::stdio())
+            .await
+            .context("MCP over stdio failed to start")?;
+        service.waiting().await?;
+        return Ok(());
+    }
+
+    let mut relay = Relay::from_config(config).with_hub_role("stdio");
     let bridge = ExtensionBridge::new();
 
     // Also start the file server, so uploads can work without the hub.
@@ -249,7 +271,7 @@ async fn run_serve(path: PathBuf) -> Result<()> {
         .with_file_server(format!("http://{addr}"))
         .with_extension(ExtensionBridge::new());
     warn_missing(&relay);
-    if relay.folders.roots().is_empty() {
+    if relay.allowed_roots().is_empty() {
         tracing::warn!("no folders are allowed yet; run `relay-mcp allow <folder>`");
     }
     let relay = Arc::new(relay);
