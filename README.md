@@ -165,6 +165,7 @@ Plain `cargo build` and `cargo test` skip the desktop app; use `-p ai-file-relay
 
 1. `node scripts/set-version.mjs 0.2.0` sets the version everywhere; update `CHANGELOG.md`; commit.
 2. Push a tag like `v0.2.0`. `.github/workflows/release.yml` builds installers for macOS (Apple silicon and Intel), Windows and Linux, the auto-update files (signed with the `TAURI_SIGNING_PRIVATE_KEY` secret) and the extension zip, into a draft GitHub release.
+   To try the build first without making a release, push a branch named `release-test/<anything>`; the installers are kept as downloadable files on that workflow run.
 3. Check the draft and publish it. Publishing runs `.github/workflows/publish-crates.yml`, which publishes the Rust crates to crates.io (needs the `CARGO_REGISTRY_TOKEN` secret). Installed apps see the new version within a few hours.
 
 ## Contributing
